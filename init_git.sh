@@ -10,7 +10,7 @@ git init
 # Create .gitignore if missing
 if [ ! -f .gitignore ]; then
   cat > .gitignore <<EOF
-.venv/
+venv/
 __pycache__/
 *.pyc
 *.pyo
