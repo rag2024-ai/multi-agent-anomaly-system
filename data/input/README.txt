@@ -1,0 +1,1 @@
+Place Adjusted_Retail_Sales_Data_with_Anomalies.csv here with required columns.
