@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Variables
-REPO_URL="https://github.com/rag2024-ai/multi-agent-anomaly-system.git"
+REPO_URL="git@github.com:rag2024-ai/multi-agent-anomaly-system.git"
 
 # Initialize git repo
 git init
