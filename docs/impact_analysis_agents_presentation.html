@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Impact Analysis Agents — Presentation</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #0f1630;
+    --text: #e8ecf8;
+    --muted: #97a0b8;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:56px 64px; display:none; }
+  .slide.active { display:block; }
+  .card { background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08);
+           box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius:18px; height:100%; padding:40px; overflow:auto; }
+  h1 { margin:0 0 8px 0; font-size: 42px; line-height:1.1; letter-spacing:.2px; }
+  p  { color: var(--text); }
+  ul, ol { margin: 8px 0 0 22px; }
+  pre { background:#0b0f1d; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; overflow:auto; }
+  .footer { position:absolute; left:0; right:0; bottom:0; height:40px; display:flex; align-items:center; gap:12px; padding:0 16px; color:var(--muted); }
+  .progress { height:4px; background: rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+  .progress > div { height:100%; width:0%; background: linear-gradient(90deg, #6aa9ff, #b68bff); }
+  .kbd { display:inline-block; padding:2px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="deck">
+  
+  <section class="slide" data-index="0">
+    <div class="card">
+      <h1>Impact Analysis Agents — Overview</h1>
+      <div class="content">
+<p><strong>Goal:</strong> Quantify how <em>external anomalies</em> (news/events) affect <em>internal metrics</em> (sales, units, avg_price, margin), and identify the most probable root causes by aligning timelines and anomaly signatures.</p>
+<ul>
+  <li>Turn <em>correlations</em> into <strong>causal, explainable impact</strong> estimates with uncertainty</li>
+  <li>Blend statistical counterfactuals + business priors + graph evidence</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="1">
+    <div class="card">
+      <h1>Inputs &amp; Contracts</h1>
+      <div class="content">
+<ul>
+  <li><strong>From correlation agents:</strong> ranked candidate (external ↔ internal) links with scores (time, geo, category, text, graph) and <em>impact_prior</em></li>
+  <li><strong>Internal metrics store:</strong> time series per grain (SKU×Region×Channel), calendar features, promotions</li>
+  <li><strong>Aux:</strong> FAISS vectors (signatures), Neo4j paths (entities/causes), Holiday/Promo calendar</li>
+</ul>
+<pre><code>{
+  "link": {"internal_id":"SKU_5_2025-05-12", "external_id":"news-118", "overall":0.78, "time":0.92},
+  "prior": {"impact_prior_pct": 61.2, "direction":{"price":"+","units":"-"}}
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="2">
+    <div class="card">
+      <h1>High‑Level Flow</h1>
+      <div class="content">
+<ol>
+  <li><strong>Timeline alignment</strong> & lag scan (cross‑correlation, domain lags)</li>
+  <li><strong>Counterfactual modeling</strong> (what would metric be without the event?)</li>
+  <li><strong>Effect estimation</strong> (ATE/ATT, absolute/relative impact, CI)</li>
+  <li><strong>Cause ranking</strong> across multiple candidate events</li>
+  <li><strong>Explainability</strong> (evidence, assumptions, sensitivity, placebo/negative controls)</li>
+</ol>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="3">
+    <div class="card">
+      <h1>1) Timeline Alignment &amp; Lag Detection</h1>
+      <div class="content">
+<ul>
+  <li>Compute cross‑correlation between event signal and metric residuals to estimate plausible lags</li>
+  <li>Respect domain priors (e.g., regulation → price in 1‑7 days; logistics → units in 3‑21 days)</li>
+  <li>Pick top‑k lags; analyze each as a candidate intervention time</li>
+</ul>
+<pre><code># cross-correlation (XCF) over residuals
+lag* = argmax_tau corr( residual(y), shifted(event_indicator, tau) )</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="4">
+    <div class="card">
+      <h1>2) Counterfactual Modeling — Options</h1>
+      <div class="content">
+<ul>
+  <li><strong>BSTS</strong> (Bayesian Structural Time Series): trend + seasonality + regressors → posterior counterfactual</li>
+  <li><strong>SCM / Synthetic Control</strong>: weighted combo of control units (peer SKUs/regions)</li>
+  <li><strong>ITS</strong> (Interrupted Time Series): segmented regression with level/slope change</li>
+  <li><strong>DiD</strong> (Diff‑in‑Diff): treated vs matched controls, removes common shocks</li>
+  <li><strong>Propensity‑weighted</strong> variants when exposure is probabilistic</li>
+</ul>
+<p>Choice depends on data richness: BSTS for single series; DiD/SC for cohorts.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="5">
+    <div class="card">
+      <h1>BSTS Sketch (Single‑Series)</h1>
+      <div class="content">
+<pre><code>y_t = trend_t + season_t + β·X_t + ε_t
+Intervention at t0 (event lag applied)
+Posterior draws of counterfactual ŷ_t (no intervention) → effect Δ_t = y_t - ŷ_t</code></pre>
+<ul>
+  <li>Summarize effect over window W: <code>Δ = Σ_t Δ_t</code>, report mean & 95% CI</li>
+  <li>Include regressors: holidays, promos, price (when modeling units), etc.</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="6">
+    <div class="card">
+      <h1>Synthetic Control (Panel)</h1>
+      <div class="content">
+<ul>
+  <li>Construct synthetic baseline = weighted peers not exposed to the event</li>
+  <li>Weights chosen to match pre‑period</li>
+</ul>
+<pre><code>y_t^treated - Σ_j w_j y_{j,t}^control  →  effect</code></pre>
+<p>Good when many comparable SKUs/regions exist and exposure is localized.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="7">
+    <div class="card">
+      <h1>Interrupted Time Series</h1>
+      <div class="content">
+<pre><code>y_t = β0 + β1·t + β2·I(t ≥ t0) + β3·(t - t0)·I(t ≥ t0) + ε_t</code></pre>
+<ul>
+  <li>β2 = level change; β3 = slope change after intervention</li>
+  <li>Add seasonal dummies & AR terms for autocorrelation</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="8">
+    <div class="card">
+      <h1>Effect Metrics &amp; Direction Checks</h1>
+      <div class="content">
+<ul>
+  <li><strong>Absolute</strong> Δ (units), <strong>Relative</strong> Δ% = Δ / ŷ</li>
+  <li>Sign consistency: tariff/regulatory ↑ → price ↑, units ↓, margin mixed</li>
+  <li>Elasticity: <code>ε = %Δ(units) / %Δ(price)</code> (if price shift observed)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="9">
+    <div class="card">
+      <h1>Root‑Cause Hypothesis Scoring</h1>
+      <div class="content">
+<p>Combine statistical evidence with priors and graph support:</p>
+<pre><code>evidence = w_cf*cf_strength + w_dir*direction_ok + w_graph*neo4j_paths +
+           w_time*time_align + w_text*semantic_match
+rank = softmax(evidence) across candidate causes for the same internal anomaly</code></pre>
+<ul>
+  <li><em>cf_strength</em>: |Δ%| magnitude × posterior certainty (1 - p_value)</li>
+  <li><em>direction_ok</em>: 1 if effect sign matches expectation</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="10">
+    <div class="card">
+      <h1>Uncertainty &amp; Sensitivity</h1>
+      <div class="content">
+<ul>
+  <li>Report 95% CI for Δ and Δ%</li>
+  <li>Placebo tests: shift event to pre‑period; effect should vanish</li>
+  <li>Negative controls: unrelated categories/regions should not show effect</li>
+  <li>Jackknife peers (SC) or prior tweaks (BSTS) to test stability</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="11">
+    <div class="card">
+      <h1>Multi‑Grain &amp; Hierarchical Modeling</h1>
+      <div class="content">
+<ul>
+  <li>Estimate at <strong>SKU×Region</strong>, then reconcile with Category×Region and Global via hierarchical shrinkage</li>
+  <li>Share strength across sparse series; reduce variance</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="12">
+    <div class="card">
+      <h1>Batch vs Streaming</h1>
+      <div class="content">
+<ul>
+  <li><strong>Streaming primer</strong>: quick ITS/DiD using rolling pre‑windows for on‑the‑fly estimates</li>
+  <li><strong>Batch refinement</strong>: nightly BSTS/SC over wider windows for accurate counterfactuals</li>
+  <li><strong>Promotion/holiday awareness</strong>: regressors prevent false attribution</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="13">
+    <div class="card">
+      <h1>Output Schema — impact.json</h1>
+      <div class="content">
+<pre><code>{
+  "internal_anomaly_id": "SKU_5_2025-05-12",
+  "candidate_causes": [
+    {
+      "external_id": "news-118",
+      "method": "BSTS",
+      "lag_days": 1,
+      "window": "2025-05-12..2025-05-19",
+      "effect_abs": -1240.0,
+      "effect_pct": -18.9,
+      "ci95": [-24.3, -13.1],
+      "p_value": 0.01,
+      "direction_ok": true,
+      "rank_score": 0.72,
+      "evidence": {"prior":0.61, "time":0.92, "graph":0.4, "text":0.65}
+    }
+  ],
+  "best_cause": "news-118"
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="14">
+    <div class="card">
+      <h1>UI &amp; Explainability</h1>
+      <div class="content">
+<ul>
+  <li>Show counterfactual vs actual chart with effect band</li>
+  <li>List top candidate causes with rank, evidence, and exemplar articles</li>
+  <li>Link to Neo4j paths for provenance; include assumptions & controls</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="15">
+    <div class="card">
+      <h1>Streaming Implementation Sketch</h1>
+      <div class="content">
+<pre><code class="language-python">def analyze_impact(link):
+    # 1) choose lag via xcorr (bounded by domain priors)
+    lag = best_lag(link.external_id, link.internal_id)
+
+    # 2) build modeling window around internal date
+    w = build_window(link.internal_id, lag)
+
+    # 3) fit counterfactual model (fast ITS online; BSTS offline)
+    model = fit_counterfactual(w.series, w.regressors, method="ITS")
+    eff  = effect_over_window(model, w.post_start, w.post_end)  # Δ, Δ%, CI, p
+    
+    # 4) combine with priors & evidence
+    score = rank_score(eff, link.scores, neo4j_paths(link))
+    return ImpactResult(link.internal_id, link.external_id, lag, eff, score)</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="16">
+    <div class="card">
+      <h1>Tuning &amp; Backtesting</h1>
+      <div class="content">
+<ul>
+  <li>Replay historical windows with known events; compute hit‑rate of best_cause</li>
+  <li>Balance sensitivity/specificity via rank thresholds</li>
+  <li>Monitor attribution stability when multiple overlapping events exist</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="17">
+    <div class="card">
+      <h1>Ops &amp; Guardrails</h1>
+      <div class="content">
+<ul>
+  <li>Idempotent writes per (internal_id, external_id, method, window)</li>
+  <li>Versioned models & calendars; data contracts for outputs</li>
+  <li>DLQs for modeling failures; SLOs on latency for streaming estimates</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="18">
+    <div class="card">
+      <h1>Takeaways</h1>
+      <div class="content">
+<ul>
+  <li>Impact agents convert plausible matches into <strong>defensible causality</strong> with uncertainty</li>
+  <li>Use the right tool per data regime: BSTS/SC for accuracy, ITS/DiD for timeliness</li>
+  <li>Explainability, controls, and graph evidence keep trust high</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <div class="footer">
+    <div>Use <span class="kbd">→</span> <span class="kbd">←</span> or <span class="kbd">Space</span> to navigate</div>
+    <div style="flex:1"></div>
+    <div id="pager">1 / 19</div>
+  </div>
+  <div class="progress"><div id="pbar"></div></div>
+</div>
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let idx = 0;
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length-1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    document.getElementById('pager').textContent = (idx+1) + ' / ' + slides.length;
+    document.getElementById('pbar').style.width = ((idx+1)/slides.length*100) + '%';
+    location.hash = '#' + (idx+1);
+  }
+  function next() { show(idx+1); }
+  function prev() { show(idx-1); }
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+  window.addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(n)) show(n-1);
+  });
+  const n0 = parseInt(location.hash.slice(1), 10);
+  show(isNaN(n0) ? 0 : n0-1);
+</script>
+</body>
+</html>

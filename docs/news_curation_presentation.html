@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>News Article Curation — Presentation</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #0f1630;
+    --text: #e8ecf8;
+    --muted: #97a0b8;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:56px 64px; display:none; }
+  .slide.active { display:block; }
+  .card { background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08);
+           box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius:18px; height:100%; padding:40px; overflow:auto; }
+  h1 { margin:0 0 8px 0; font-size: 42px; line-height:1.1; letter-spacing:.2px; }
+  h2 { margin:0 0 18px 0; font-size: 28px; color: var(--accent); font-weight: 600; }
+  p  { color: var(--text); }
+  ul, ol { margin: 8px 0 0 22px; }
+  code, pre code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  pre { background:#0b0f1d; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; overflow:auto; }
+  .footer { position:absolute; left:0; right:0; bottom:0; height:40px; display:flex; align-items:center; gap:12px; padding:0 16px; color:var(--muted); }
+  .progress { height:4px; background: rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+  .progress > div { height:100%; width:0%; background: linear-gradient(90deg, #6aa9ff, #b68bff); }
+  .kbd { display:inline-block; padding:2px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:12px; color:var(--muted); }
+  a { color: #9fc3ff; }
+</style>
+</head>
+<body>
+<div class="deck">
+  
+  <section class="slide" data-index="0">
+    <div class="card">
+      <h1>News Article Curation — End‑to‑End</h1>
+      <div class="content">
+<p><strong>Goal:</strong> Turn raw web inputs into structured, deduplicated, ranked <em>events</em> with rich metadata for correlation and impact analysis.</p>
+<ul>
+  <li>Collect → Clean → Understand → Enrich → Filter → Dedupe → Score → Publish</li>
+  <li>Outputs feed <strong>FAISS</strong> (semantic retrieval) and <strong>Neo4j</strong> (reasoning & provenance)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="1">
+    <div class="card">
+      <h1>Pipeline at a glance (streaming)</h1>
+      <div class="content">
+<ol>
+  <li><strong>Acquire</strong> (crawler agents) → HTML/PDF + metadata</li>
+  <li><strong>Extract & Normalize</strong> → main text, title, canonical URL, timestamps, language</li>
+  <li><strong>Enrich</strong> → NER & linking, taxonomy, region mapping, event detection, summarization</li>
+  <li><strong>Embed</strong> → dense vectors (title/body/event) in FAISS</li>
+  <li><strong>De‑duplicate & Novelty</strong> → SimHash / MinHash‑LSH / vector similarity</li>
+  <li><strong>Score & Filter</strong> → relevance/impact with time decay, reputation, geo/category, novelty</li>
+  <li><strong>Moderate & Comply</strong> → policy/PII/unsafe checks</li>
+  <li><strong>Publish</strong> → <code>news.curated</code> + object store; upsert to Neo4j; index in FAISS</li>
+</ol>
+<p><strong>Kafka topics</strong>: <code>raw.news.html</code>, <code>news.extracted</code>, <code>news.curated</code></p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="2">
+    <div class="card">
+      <h1>1) Acquisition</h1>
+      <div class="content">
+<ul>
+  <li>Respect <code>robots.txt</code>, rate limits, site TOS; canonicalize URLs; store raw bytes to S3/MinIO (claim‑check pattern)</li>
+  <li><em>Idempotency:</em> <code>sha256(canonical_url || content_hash)</code></li>
+</ul>
+<pre><code>{
+  "raw_ptr": "s3://lake/news/raw/2025/05/11/....html",
+  "canonical_url": "https://example.com/article",
+  "fetched_at": "2025-05-11T08:16:30Z"
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="3">
+    <div class="card">
+      <h1>2) Extraction &amp; Normalization</h1>
+      <div class="content">
+<ul>
+  <li>Boilerplate removal (Readability/Goose‑like rules), byline/title capture</li>
+  <li>PDF → text (+ OCR fallback), table extraction for regulation docs</li>
+  <li>Language detection (ISO), timestamps (prefer <code>published_at</code>), UTC normalization</li>
+</ul>
+<pre><code>{
+  "id": "...hash...",
+  "source_domain": "example.com",
+  "published_at": "2025-05-11T08:15:00Z",
+  "lang": "en",
+  "title": "EU tariff change impacts electronics",
+  "body": "... main text ...",
+  "raw_ptr": "s3://..."
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="4">
+    <div class="card">
+      <h1>3) Enrichment (NLP)</h1>
+      <div class="content">
+<ul>
+  <li><strong>NER & Entity linking</strong> (ORG, GPE, PRODUCT, LAW/REG) → external IDs</li>
+  <li><strong>Taxonomy</strong> → business categories (e.g., Electronics, Semiconductor)</li>
+  <li><strong>Region mapping</strong> → normalize EU/US/UK/APAC, etc.</li>
+  <li><strong>Event extraction</strong> → RegulatoryChange, Tariff, GeopoliticalRisk, SupplyDisruption…</li>
+  <li><strong>Summarization</strong> (for UI & vectors), optional sentiment/stance</li>
+</ul>
+<pre><code>{
+  "entities": [{{"type":"ORG","text":"ACME","qid":"Q123"}}],
+  "categories": ["Electronics","Semiconductor"],
+  "region": "eu",
+  "event_type": "RegulatoryChange",
+  "summary": "EU raises tariff on electronics components..."
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="5">
+    <div class="card">
+      <h1>4) Embeddings for FAISS</h1>
+      <div class="content">
+<ul>
+  <li>Create vectors: <code>v_title</code>, <code>v_body</code> (or chunked avg), <code>v_event</code></li>
+  <li>Index <code>(news_id, v_event)</code> as primary keyspace; keep sidecars for title/body search</li>
+  <li>Daily shard + snapshot; periodic merge & checkpoint</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="6">
+    <div class="card">
+      <h1>5) De‑duplication &amp; Novelty</h1>
+      <div class="content">
+<ul>
+  <li><strong>Exact dupes:</strong> same content hash or canonical URL</li>
+  <li><strong>Near‑dupes:</strong> SimHash / MinHash‑LSH, or cosine on <code>v_body</code> ≥ 0.92</li>
+  <li>Pick canonical by source reputation + earliest publish time, mark others <code>superseded_by</code></li>
+  <li><strong>Novelty:</strong> compare with FAISS top‑k over last N days; penalize near‑identicals</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="7">
+    <div class="card">
+      <h1>6) Relevance &amp; Impact Scoring</h1>
+      <div class="content">
+<ul>
+  <li>Signals: topic similarity, region/category match, source reputation, novelty, recency decay</li>
+</ul>
+<pre><code>score = 0.30*sim_topic + 0.20*geo + 0.20*cat + 0.15*source +
+        0.10*novelty + 0.05*decay</code></pre>
+<ul>
+  <li>Threshold (e.g., ≥ 0.55) routes to <code>news.curated</code>; can replace with small XGBoost</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="8">
+    <div class="card">
+      <h1>7) Moderation &amp; Compliance</h1>
+      <div class="content">
+<ul>
+  <li>PII redaction, unsafe category filtering</li>
+  <li>Respect licensing—store snippets + pointers if full text is restricted</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="9">
+    <div class="card">
+      <h1>8) Publication &amp; Contracts</h1>
+      <div class="content">
+<ul>
+  <li>Emit to <code>news.curated</code> with explainability <code>reasons</code></li>
+  <li>Upsert to <strong>Neo4j</strong>: <code>(Event)-[:IN_REGION]-&gt;(Region)</code>, <code>(Event)-[:IN_CATEGORY]-&gt;(Category)</code>, <code>(Event)-[:MENTIONS]-&gt;(Entity)</code></li>
+  <li>Insert/Update vectors in <strong>FAISS</strong></li>
+</ul>
+<pre><code>{
+  "news_id": "...",
+  "title": "...",
+  "region": "eu",
+  "categories": ["Electronics"],
+  "event_type": "RegulatoryChange",
+  "score": 0.71,
+  "reasons": {"sim_topic":0.78,"geo":1,"cat":0.9,"source":0.8,"novelty":0.6,"recency":0.7}
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="10">
+    <div class="card">
+      <h1>Integration with Correlation &amp; UI</h1>
+      <div class="content">
+<ul>
+  <li><strong>Correlation:</strong> FAISS kNN with anomaly signatures; Neo4j constraints refine candidates</li>
+  <li><strong>UI:</strong> summaries, entities, evidence links; trace back to raw content pointer</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="11">
+    <div class="card">
+      <h1>Quality Controls &amp; Observability</h1>
+      <div class="content">
+<ul>
+  <li>Metrics: extraction success, latency, dedupe rate, precision/recall on labeled set</li>
+  <li>Dashboards: volume by region/category, source mix, novelty vs redundancy, score histogram</li>
+  <li>Data contracts: strict schema for <code>news.curated</code> (Avro/JSON Schema)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="12">
+    <div class="card">
+      <h1>Failure Handling &amp; Idempotency</h1>
+      <div class="content">
+<ul>
+  <li>At‑least‑once with idempotent processors; retries + DLQ <code>news.deadletter</code></li>
+  <li>Claim‑check for large payloads: Kafka carries JSON + pointer to S3/MinIO blob</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="13">
+    <div class="card">
+      <h1>Scaling &amp; Performance</h1>
+      <div class="content">
+<ul>
+  <li>Partition by <code>source_domain</code>; distributed rate limiting</li>
+  <li>Batch embeddings; sharded FAISS with background merge</li>
+  <li>Buffered Neo4j writer with transaction batches</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="14">
+    <div class="card">
+      <h1>Pseudocode — Curation Worker</h1>
+      <div class="content">
+<pre><code class="language-python">def curate(message):
+    raw = load_from_object_store(message["raw_ptr"])
+    html_or_pdf = raw["content"]
+    url = canonicalize_url(raw["url"])
+
+    text, title = extract_main_content(html_or_pdf)
+    lang = detect_language(text)
+    published_at = pick_timestamp(raw, html_or_pdf)
+
+    ents = ner_and_link(text)
+    cats = classify_taxonomy(title, text)
+    region = normalize_region(ents, text, url)
+    event_type = detect_event_type(text, title)
+    summary = summarize(text)
+
+    v_event = embed(f"{event_type} {region} {','.join(cats)} {summary}")
+
+    if is_duplicate(text, url):
+        return
+
+    score, reasons = relevance_score(v_event, cats, region, source_domain(url), published_at)
+    if score &lt; THRESHOLD:
+        return
+
+    news = { "news_id": sha256(url + published_at), "canonical_url": url,
+             "title": title, "summary": summary, "body_ptr": message["raw_ptr"],
+             "entities": ents, "categories": cats, "region": region,
+             "event_type": event_type, "published_at": published_at,
+             "source_domain": source_domain(url), "score": score, "reasons": reasons }
+    kafka_produce("news.curated", news)
+    faiss_upsert(news["news_id"], v_event)
+    neo4j_upsert_event_graph(news)</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="15">
+    <div class="card">
+      <h1>Pseudocode — De‑dup Strategy</h1>
+      <div class="content">
+<pre><code class="language-python">def is_duplicate(text, url):
+    url_key = normalize_url(url)
+    if seen_url(url_key): 
+        return True
+    h = simhash(text)
+    near = simhash_lsh.lookup(h)       # or FAISS cosine on v_body
+    if any(simhash_distance(h, x) &lt;= 3 for x in near):
+        return True
+    mark_seen(url_key, h)
+    return False</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="16">
+    <div class="card">
+      <h1>Pseudocode — Relevance Score</h1>
+      <div class="content">
+<pre><code class="language-python">def relevance_score(v_event, cats, region, src, published_at):
+    sim_topic = cosine(v_event, tracked_topic_vector())
+    geo = 1.0 if region in TRACKED_REGIONS else 0.0
+    cat = max(category_weight(c) for c in cats)
+    src_rep = SOURCE_REPUTATION.get(src, 0.5)
+    nov = novelty(v_event)              # 0..1
+    dt_hours = (now() - published_at).total_seconds() / 3600.0
+    decay = math.exp(-dt_hours / 48.0)
+
+    score = 0.30*sim_topic + 0.20*geo + 0.20*cat + 0.15*src_rep + 0.10*nov + 0.05*decay
+    reasons = {"sim_topic":round(sim_topic,3),"geo":geo,"cat":round(cat,3),
+               "source":src_rep,"novelty":round(nov,3),"recency":round(decay,3)}
+    return score, reasons</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="17">
+    <div class="card">
+      <h1>Wrap‑up</h1>
+      <div class="content">
+<ul>
+  <li>Curated items are precise, explainable, and queryable</li>
+  <li>They power fast semantic correlation (FAISS) and graph‑based explanations (Neo4j)</li>
+  <li>Design emphasizes idempotency, observability, and scalability</li>
+</ul>
+<p><em>Next:</em> add a reviewer UI for human‑in‑the‑loop feedback & active learning.</p>
+</div>
+    </div>
+  </section>
+  <div class="footer">
+    <div>Use <span class="kbd">→</span> <span class="kbd">←</span> or <span class="kbd">Space</span> to navigate</div>
+    <div style="flex:1"></div>
+    <div id="pager">1 / 18</div>
+  </div>
+  <div class="progress"><div id="pbar"></div></div>
+</div>
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let idx = 0;
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length-1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    document.getElementById('pager').textContent = (idx+1) + ' / ' + slides.length;
+    document.getElementById('pbar').style.width = ((idx+1)/slides.length*100) + '%';
+    location.hash = '#' + (idx+1);
+  }
+  function next() { show(idx+1); }
+  function prev() { show(idx-1); }
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+  window.addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(n)) show(n-1);
+  });
+  const n0 = parseInt(location.hash.slice(1), 10);
+  show(isNaN(n0) ? 0 : n0-1);
+</script>
+</body>
+</html>

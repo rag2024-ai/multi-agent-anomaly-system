@@ -1,0 +1,189 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Data Pipeline Architecture</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #111836;
+    --accent: #6aa9ff;
+    --accent2: #b68bff;
+    --text: #e8ecf8;
+    --muted: #9aa6c6;
+    --stroke: rgba(255,255,255,0.2);
+    --stroke-strong: rgba(255,255,255,0.35);
+  }
+  body { margin:0; background:var(--bg); color:var(--text); font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .wrap { max-width: 1400px; margin: 24px auto 80px; padding: 0 16px; }
+  h1 { margin: 12px 0 18px; font-size: 28px; letter-spacing: .2px; }
+  .legend { color: var(--muted); margin-bottom: 12px; }
+  svg { width: 100%; height: auto; background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)); border:1px solid var(--stroke); border-radius: 14px; }
+  .box { fill: var(--card); stroke: var(--stroke); stroke-width: 1.2; rx: 12; ry: 12; }
+  .band { fill: none; stroke: var(--stroke-strong); stroke-width: 2.0; }
+  .label { font-size: 13.5px; fill: var(--text); }
+  .small { font-size: 12.5px; fill: var(--muted); }
+  .topic { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 6 4; }
+  .topic-label { font-size: 12.5px; fill: var(--accent); }
+  .arrow { stroke: var(--stroke-strong); stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+  .arrow2 { stroke: var(--accent2); stroke-width: 1.6; fill: none; marker-end: url(#arrow2); }
+  .pill { fill: rgba(106,169,255,0.16); stroke: var(--accent); stroke-width: 1.1; rx: 10; ry: 10; }
+  .pill2 { fill: rgba(182,139,255,0.16); stroke: var(--accent2); stroke-width: 1.1; rx: 10; ry: 10; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Data Pipeline Architecture</h1>
+  <div class="legend">Control & data-plane view showing agents, topics, stores, and flows.</div>
+  <svg viewBox="0 0 1400 1750" preserveAspectRatio="xMidYMin meet">
+    <defs>
+      <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,0.65)"></path>
+      </marker>
+      <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+        <path d="M0,0 L10,5 L0,10 z" fill="url(#g1)"></path>
+      </marker>
+      <linearGradient id="g1" x1="0" x2="1">
+        <stop offset="0" stop-color="#6aa9ff" />
+        <stop offset="1" stop-color="#b68bff" />
+      </linearGradient>
+    </defs>
+
+    <!-- Control Plane band -->
+    <rect x="50" y="20" width="1300" height="70" class="band" />
+    <text x="700" y="50" text-anchor="middle" class="label" style="font-size:16px;">CONTROL PLANE</text>
+    <text x="700" y="70" text-anchor="middle" class="small">Orchestrator (Ray/Airflow) • Registry • Policy/Configs</text>
+
+    <!-- Sources row -->
+    <rect x="60"  y="120" width="250" height="70" class="box" />
+    <text x="185" y="155" text-anchor="middle" class="label">Trusted News</text>
+
+    <rect x="330" y="120" width="250" height="70" class="box" />
+    <text x="455" y="155" text-anchor="middle" class="label">Social/Feeds</text>
+
+    <rect x="600" y="120" width="250" height="70" class="box" />
+    <text x="725" y="148" text-anchor="middle" class="label">Reg. Portals/PDFs</text>
+
+    <rect x="870" y="120" width="250" height="70" class="box" />
+    <text x="995" y="155" text-anchor="middle" class="label">Vendor Feeds (CSV)</text>
+
+    <!-- Crawlers -->
+    <rect x="50" y="220" width="1300" height="110" class="box" />
+    <text x="700" y="250" text-anchor="middle" class="label">CRAWLER AGENTS (Playwright / Scrapy)</text>
+    <text x="700" y="275" text-anchor="middle" class="small">Site-specific • Sitemap/pagination • PDF fetch • Robots/policy guard</text>
+
+    <!-- Lines from sources to crawlers -->
+    <path d="M185,190 L185,220" class="arrow" />
+    <path d="M455,190 L455,220" class="arrow" />
+    <path d="M725,190 L725,220" class="arrow" />
+    <path d="M995,190 L995,220" class="arrow" />
+
+    <!-- Kafka raw.news.html -->
+    <rect x="60" y="360" width="300" height="46" class="pill" />
+    <text x="210" y="388" text-anchor="middle" class="topic-label">Kafka Topic: raw.news.html</text>
+    <path d="M210,330 L210,360" class="arrow" />
+
+    <!-- Object Store -->
+    <rect x="360" y="360" width="360" height="46" class="pill" />
+    <text x="540" y="388" text-anchor="middle" class="topic-label">Object Store / Data Lake: s3://lake/news/raw/</text>
+    <path d="M540,330 L540,360" class="arrow" />
+
+    <!-- Curation & NLP -->
+    <rect x="50" y="440" width="1300" height="130" class="box" />
+    <text x="700" y="470" text-anchor="middle" class="label">CURATION & NLP ENRICHMENT AGENTS (Kafka Streams / Flink / LLM)</text>
+    <text x="700" y="495" text-anchor="middle" class="small">Clean/boil text • NER/Event extraction • Taxonomy • Embeddings • Lang detect • Source score • De-dup • Relevancy</text>
+
+    <!-- Outputs: news.curated, FAISS, Neo4j -->
+    <rect x="60"  y="590" width="240" height="44" class="pill" />
+    <text x="180" y="617" text-anchor="middle" class="topic-label">Kafka: news.curated</text>
+    <path d="M180,570 L180,590" class="arrow" />
+
+    <rect x="320" y="590" width="300" height="44" class="pill2" />
+    <text x="470" y="617" text-anchor="middle" class="topic-label">Vector Store (FAISS)</text>
+    <path d="M470,570 L470,590" class="arrow2" />
+
+    <rect x="640" y="590" width="300" height="44" class="pill2" />
+    <text x="790" y="617" text-anchor="middle" class="topic-label">Knowledge Graph (Neo4j)</text>
+    <path d="M790,570 L790,590" class="arrow2" />
+
+    <!-- Boxes: External Anomaly, Semantic Search, KG -->
+    <rect x="50"  y="660" width="320" height="90" class="box" />
+    <text x="210" y="700" text-anchor="middle" class="label">External Anomaly Detection</text>
+    <path d="M180,634 L180,660" class="arrow" />
+
+    <rect x="390" y="660" width="300" height="90" class="box" />
+    <text x="540" y="700" text-anchor="middle" class="label">Semantic Search / Retrieval API</text>
+    <path d="M470,634 L470,660" class="arrow" />
+
+    <rect x="710" y="660" width="340" height="90" class="box" />
+    <text x="880" y="700" text-anchor="middle" class="label">Knowledge Graph (Neo4j)</text>
+    <path d="M790,634 L790,660" class="arrow" />
+
+    <!-- news.anomalies topic -->
+    <rect x="120" y="770" width="260" height="44" class="pill" />
+    <text x="250" y="797" text-anchor="middle" class="topic-label">Kafka: news.anomalies</text>
+    <path d="M210,750 L210,770" class="arrow" />
+
+    <!-- kg.updates topic (decorative) -->
+    <rect x="780" y="770" width="230" height="44" class="pill" />
+    <text x="895" y="797" text-anchor="middle" class="topic-label">Kafka: kg.updates</text>
+    <path d="M880,750 L880,770" class="arrow" />
+
+    <!-- Internal Data Pipeline band -->
+    <rect x="50" y="840" width="1300" height="80" class="band" />
+    <text x="700" y="872" text-anchor="middle" class="label" style="font-size:15px;">INTERNAL DATA PIPELINE (CDC/ETL)</text>
+    <text x="700" y="892" text-anchor="middle" class="small">ERP/CRM/eComm/BI streams → Kafka → Lake + ClickHouse</text>
+
+    <!-- TS Store and Feature Store -->
+    <rect x="120" y="940" width="360" height="80" class="box" />
+    <text x="300" y="978" text-anchor="middle" class="label">Time-series Store (ClickHouse/TSDB)</text>
+
+    <rect x="510" y="940" width="300" height="80" class="box" />
+    <text x="660" y="978" text-anchor="middle" class="label">Feature Store (Feast)</text>
+
+    <!-- Internal Anomaly Detection -->
+    <rect x="840" y="930" width="360" height="100" class="box" />
+    <text x="1020" y="968" text-anchor="middle" class="label">Internal Anomaly Detection Agents (Flink/Spark ML)</text>
+
+    <!-- arrows from TS/Feast to internal anomaly -->
+    <path d="M480,980 L840,980" class="arrow" />
+    <path d="M810,980 L840,980" class="arrow" />
+
+    <!-- internal.anomalies topic -->
+    <rect x="940" y="1045" width="260" height="44" class="pill" />
+    <text x="1070" y="1072" text-anchor="middle" class="topic-label">Kafka: internal.anomalies</text>
+    <path d="M1020,1030 L1020,1045" class="arrow" />
+
+    <!-- Correlation & Causal Analysis -->
+    <rect x="200" y="1130" width="1000" height="120" class="box" />
+    <text x="700" y="1170" text-anchor="middle" class="label">CORRELATION & CAUSAL ANALYSIS AGENTS (Ray/Spark + Python)</text>
+    <text x="700" y="1195" text-anchor="middle" class="small">Align timelines • Cross-corr • PCMCI/Granger • BSTS • Hypothesis tests • Counterfactuals • Impact estimation</text>
+
+    <!-- Inputs to Correlation: news.anomalies and internal.anomalies -->
+    <path d="M250,814 L250,1130" class="arrow2" />
+    <path d="M1070,1089 L1070,1130" class="arrow2" />
+
+    <!-- Results & Metrics -->
+    <rect x="260" y="1270" width="380" height="86" class="box" />
+    <text x="450" y="1310" text-anchor="middle" class="label">Results DB (Postgres) & Reports (S3/Parquet)</text>
+
+    <rect x="670" y="1270" width="340" height="86" class="box" />
+    <text x="840" y="1310" text-anchor="middle" class="label">Metrics / Observability (Prometheus + Grafana)</text>
+
+    <!-- Arrows from correlation box to results/metrics -->
+    <path d="M700,1250 L450,1270" class="arrow" />
+    <path d="M700,1250 L840,1270" class="arrow" />
+
+    <!-- API Gateway + UI -->
+    <rect x="380" y="1380" width="620" height="100" class="box" />
+    <text x="690" y="1420" text-anchor="middle" class="label">API GATEWAY + UI (FastAPI + React)</text>
+    <text x="690" y="1445" text-anchor="middle" class="small">Explore anomalies • Evidence • What-if & impact • Lineage</text>
+
+    <!-- Arrow from Results DB to API/UI -->
+    <path d="M450,1356 L690,1380" class="arrow" />
+  </svg>
+</div>
+</body>
+</html>

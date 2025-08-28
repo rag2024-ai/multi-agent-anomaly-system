@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Internal Anomaly Detection — Presentation</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #0f1630;
+    --text: #e8ecf8;
+    --muted: #97a0b8;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:56px 64px; display:none; }
+  .slide.active { display:block; }
+  .card { background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08);
+           box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius:18px; height:100%; padding:40px; overflow:auto; }
+  h1 { margin:0 0 8px 0; font-size: 42px; line-height:1.1; letter-spacing:.2px; }
+  p  { color: var(--text); }
+  ul, ol { margin: 8px 0 0 22px; }
+  pre { background:#0b0f1d; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; overflow:auto; }
+  .footer { position:absolute; left:0; right:0; bottom:0; height:40px; display:flex; align-items:center; gap:12px; padding:0 16px; color:var(--muted); }
+  .progress { height:4px; background: rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+  .progress > div { height:100%; width:0%; background: linear-gradient(90deg, #6aa9ff, #b68bff); }
+  .kbd { display:inline-block; padding:2px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="deck">
+  
+  <section class="slide" data-index="0">
+    <div class="card">
+      <h1>Internal Anomaly Detection — Overview</h1>
+      <div class="content">
+<p><strong>Goal:</strong> Detect unusual behaviors in <em>organizational metrics</em> (sales, units, price, returns, traffic) across SKU, region, channel, and time—fast, explainably, and at scale.</p>
+<ul>
+  <li>Operate on fact tables (daily/weekly) or event streams (orders, pageviews)</li>
+  <li>Model normal patterns (trend, seasonality, holiday effects) → flag deviations</li>
+  <li>Emit structured anomalies for correlation with external events and impact analysis</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="1">
+    <div class="card">
+      <h1>What counts as an “internal anomaly”?</h1>
+      <div class="content">
+<ul>
+  <li><strong>Point spikes/dips</strong> (e.g., 20% drop in EU electronics sales on 2025‑05‑12)</li>
+  <li><strong>Price irregularities</strong> (avg_price jumps due to promo/eligibility errors)</li>
+  <li><strong>Trend breaks / level shifts</strong> (post‑release regression)</li>
+  <li><strong>Seasonality changes</strong> (holiday effect missing/over‑amplified)</li>
+  <li><strong>Cross‑metric inconsistencies</strong> (units↓ but revenue↑ from outlier price)</li>
+  <li><strong>Segment‑localized anomalies</strong> (specific SKU x Region x Channel)</li>
+</ul>
+<p>We detect anomalies <em>per-grain</em> (e.g., per SKU×Region) and also at rolled‑up levels to catch aggregation leakage.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="2">
+    <div class="card">
+      <h1>Data model &amp; grain</h1>
+      <div class="content">
+<ul>
+  <li><strong>Time</strong>: date (or hourly), continuous timeline</li>
+  <li><strong>Dimensions</strong>: SKU, Category, Region, Channel, Customer segment</li>
+  <li><strong>Metrics</strong>: units, sales, avg_price (= sales/units), margin, returns, traffic</li>
+</ul>
+<pre><code>fact_sales(date, sku, region, category, channel, units, sales, avg_price, margin)</code></pre>
+<p><em>Tip:</em> keep derived features like <code>avg_price</code>, <code>rev_per_visit</code> to spot structural issues.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="3">
+    <div class="card">
+      <h1>Feature engineering (per grain)</h1>
+      <div class="content">
+<ul>
+  <li>Calendar: dow, week, month, quarter, holiday flags, pay‑day, campaign windows</li>
+  <li>Lags: y(t‑1), y(t‑7), y(t‑28), rolling means/medians, rolling std/MAD</li>
+  <li>Ratios: price = sales/units, margin%, ARPU, conversion</li>
+  <li>Peer baselines: category/region medians for same date (to resist sparse series)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="4">
+    <div class="card">
+      <h1>Detectors — classical robust methods</h1>
+      <div class="content">
+<ul>
+  <li><strong>Rolling z‑score</strong> (window W): flag if |z| &gt; z<sub>th</sub></li>
+  <li><strong>MAD z‑score</strong> (robust to outliers) for price/promotions</li>
+  <li><strong>STL decomposition</strong> → residual outliers (iqr/σ thresholds)</li>
+  <li><strong>Change‑point detection</strong> (BOCPD/CUSUM) for mean/variance shifts</li>
+</ul>
+<pre><code># Rolling z-score
+mu = roll_mean(y, W);  sigma = roll_std(y, W)
+z  = (y - mu) / sigma
+flag if |z| &gt; z_th</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="5">
+    <div class="card">
+      <h1>Detectors — multivariate &amp; density</h1>
+      <div class="content">
+<ul>
+  <li><strong>Isolation Forest</strong> on vector [units, sales, price, margin, lag features]</li>
+  <li><strong>Robust PCA (RPCA)</strong>: y = Low‑rank (trend/seasonal) + Sparse (anomalies)</li>
+  <li><strong>DBSCAN/HDBSCAN</strong> for cluster‑based outliers in embeddings</li>
+</ul>
+<p>Use when simple univariate signals disagree or to catch cross‑metric inconsistencies.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="6">
+    <div class="card">
+      <h1>Seasonality, holidays, and campaigns</h1>
+      <div class="content">
+<ul>
+  <li>Model recurring patterns with <strong>STL</strong> or <strong>Prophet</strong> (additives)</li>
+  <li>Include <strong>holiday/campaign regressors</strong> to prevent false positives</li>
+  <li>Maintain a <strong>calendar service</strong> to version special days and flash promos</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="7">
+    <div class="card">
+      <h1>Online vs. batch detection</h1>
+      <div class="content">
+<ul>
+  <li><strong>Online</strong> (streaming): update rolling stats per event/batch; emit as soon as window closes</li>
+  <li><strong>Batch</strong> (daily): recompute z/MAD/STL residuals on the last N days; backfill missed signals</li>
+  <li><strong>Hybrid</strong>: quick online screen → nightly refinement (less noise, better seasonality)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="8">
+    <div class="card">
+      <h1>Schema — internal.anomalies</h1>
+      <div class="content">
+<pre><code>{
+  "anomaly_id": "SKU_5_2025-05-12",
+  "date": "2025-05-12",
+  "grain": {"sku":"SKU_5","region":"APAC","category":"Electronics","channel":"ecom"},
+  "metrics": {
+    "units": 9.0,
+    "sales": 1826.72,
+    "avg_price": 202.97,
+    "z_units": -1.72,
+    "z_sales": 0.99,
+    "z_price": 2.97,
+    "mad_z_price": 5.34
+  },
+  "detectors": ["rolling_z","mad_price"],
+  "type": "Price jump",
+  "reasons": {"price":"&gt; 3σ above rolling median", "units":"below seasonal baseline"}
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="9">
+    <div class="card">
+      <h1>Explainability payloads</h1>
+      <div class="content">
+<ul>
+  <li><strong>Baselines</strong>: μ/σ or median/MAD values used</li>
+  <li><strong>Comparatives</strong>: y vs. last 7/28/365‑day medians</li>
+  <li><strong>Peer group</strong>: z‑scores relative to category/region cohort</li>
+  <li><strong>Plots</strong>: small sparkline of last 90 days with thresholds</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="10">
+    <div class="card">
+      <h1>False‑positive controls</h1>
+      <div class="content">
+<ul>
+  <li>Require <strong>support</strong> (e.g., ≥ 3 data points for hourly) and <strong>persistence</strong> (e.g., 2 consecutive flags)</li>
+  <li><strong>Cooldown</strong> windows to avoid duplicate alerts</li>
+  <li>Use <strong>AND</strong>/<strong>OR</strong> logic across metrics (e.g., units & price together)</li>
+  <li>Whitelist known promos/holidays; suppress if expected by calendar</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="11">
+    <div class="card">
+      <h1>Backtesting &amp; tuning</h1>
+      <div class="content">
+<ul>
+  <li>Sliding windows to compute precision/recall vs. human labels or known incidents</li>
+  <li>Per‑segment thresholds (SKU, region) to reflect variance differences</li>
+  <li>Score calibration: translate z/MAD into <em>impact‑likelihood</em> 0..1</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="12">
+    <div class="card">
+      <h1>Streaming implementation sketch</h1>
+      <div class="content">
+<pre><code class="language-python">def on_fact_row(row):
+    key = (row["sku"], row["region"])
+    date = row["date"]
+    buf = state.buffer(key)
+
+    # update rolling windows
+    buf.push(date, row["units"], row["sales"], row["avg_price"])
+    z_units = zscore(buf.units)
+    z_sales = zscore(buf.sales)
+    mad_price = mad_z(buf.price)
+
+    type_ = None
+    if abs(mad_price[-1]) &gt; 2.5:
+        type_ = "Price jump"
+    elif abs(z_units[-1]) &gt; 2.0 or abs(z_sales[-1]) &gt; 2.0:
+        type_ = "KPI anomaly"
+
+    if type_ and support(buf) and not cooldown(key):
+        emit({
+          "anomaly_id": f"{row['sku']}_{date}",
+          "date": str(date),
+          "grain": {"sku":row["sku"], "region":row["region"], "category":row["category"]},
+          "metrics": { "units": row["units"], "sales": row["sales"], "avg_price": row["avg_price"],
+                       "z_units": z_units[-1], "z_sales": z_sales[-1], "mad_z_price": mad_price[-1] },
+          "type": type_,
+          "detectors": detectors_used(buf)
+        })</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="13">
+    <div class="card">
+      <h1>Multi‑level detection (roll‑ups)</h1>
+      <div class="content">
+<ul>
+  <li>Run detectors at <strong>SKU×Region</strong> and also at <strong>Category×Region</strong> and <strong>Global</strong></li>
+  <li>Attach <em>hierarchical context</em> (e.g., parent roll‑up is also anomalous → higher confidence)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="14">
+    <div class="card">
+      <h1>Integration points</h1>
+      <div class="content">
+<ul>
+  <li><strong>Correlation agents</strong>: use anomaly date/region/category + FAISS kNN to fetch candidate news</li>
+  <li><strong>Impact analysis</strong>: take anomaly magnitude (z, % deviation) as prior for impact% estimation</li>
+  <li><strong>UI</strong>: render reasons, baselines, and sparklines; allow user feedback (confirm/suppress)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="15">
+    <div class="card">
+      <h1>Takeaways</h1>
+      <div class="content">
+<ul>
+  <li>Robust, explainable detectors: rolling z, MAD, STL + change‑point</li>
+  <li>Designed for streaming or batch; tuned per‑segment to curb false positives</li>
+  <li>Produces rich payloads for correlation and impact modules</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <div class="footer">
+    <div>Use <span class="kbd">→</span> <span class="kbd">←</span> or <span class="kbd">Space</span> to navigate</div>
+    <div style="flex:1"></div>
+    <div id="pager">1 / 16</div>
+  </div>
+  <div class="progress"><div id="pbar"></div></div>
+</div>
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let idx = 0;
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length-1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    document.getElementById('pager').textContent = (idx+1) + ' / ' + slides.length;
+    document.getElementById('pbar').style.width = ((idx+1)/slides.length*100) + '%';
+    location.hash = '#' + (idx+1);
+  }
+  function next() { show(idx+1); }
+  function prev() { show(idx-1); }
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+  window.addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(n)) show(n-1);
+  });
+  const n0 = parseInt(location.hash.slice(1), 10);
+  show(isNaN(n0) ? 0 : n0-1);
+</script>
+</body>
+</html>

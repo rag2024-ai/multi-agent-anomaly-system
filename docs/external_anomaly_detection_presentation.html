@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>External Anomaly Detection — Presentation</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #0f1630;
+    --text: #e8ecf8;
+    --muted: #97a0b8;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:56px 64px; display:none; }
+  .slide.active { display:block; }
+  .card { background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08);
+           box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius:18px; height:100%; padding:40px; overflow:auto; }
+  h1 { margin:0 0 8px 0; font-size: 42px; line-height:1.1; letter-spacing:.2px; }
+  p  { color: var(--text); }
+  ul, ol { margin: 8px 0 0 22px; }
+  pre { background:#0b0f1d; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; overflow:auto; }
+  .footer { position:absolute; left:0; right:0; bottom:0; height:40px; display:flex; align-items:center; gap:12px; padding:0 16px; color:var(--muted); }
+  .progress { height:4px; background: rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+  .progress > div { height:100%; width:0%; background: linear-gradient(90deg, #6aa9ff, #b68bff); }
+  .kbd { display:inline-block; padding:2px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="deck">
+  
+  <section class="slide" data-index="0">
+    <div class="card">
+      <h1>External Anomaly Detection — Overview</h1>
+      <div class="content">
+<p><strong>Goal:</strong> Detect unusual, potentially impactful <em>external events</em> in curated news/feeds that could affect internal KPIs (sales, inventory, finance).</p>
+<ul>
+  <li>Operate on curated items (clean text, entities, categories, region, vectors)</li>
+  <li>Find <em>bursts, shifts, and rare patterns</em> in time, text, graph, and geo facets</li>
+  <li>Emit structured anomalies → correlation & impact analysis</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="1">
+    <div class="card">
+      <h1>What is an “external anomaly”?</h1>
+      <div class="content">
+<ul>
+  <li><strong>Volume spike</strong>: sudden surge in articles about <em>Electronics in EU</em></li>
+  <li><strong>Semantic novelty</strong>: new regulation or sanction phrase never seen before</li>
+  <li><strong>Sentiment shift</strong>: polarity swings negative for a region/category</li>
+  <li><strong>Entity/graph anomaly</strong>: new edge type (ORG ↔ LAW) not observed historically</li>
+  <li><strong>Geo dispersion</strong>: topic rapidly spreads to multiple regions</li>
+</ul>
+<p>We mark anomalies when <em>observed patterns deviate materially</em> from a learned baseline.</p>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="2">
+    <div class="card">
+      <h1>Pipeline (streaming)</h1>
+      <div class="content">
+<ol>
+  <li><strong>Ingest</strong> curated items from <code>news.curated</code></li>
+  <li><strong>Feature</strong>: time-bucketed counts, sentiment, embeddings, entity/graph stats</li>
+  <li><strong>Detect</strong>: burst/shift/novelty algorithms (univariate & multivariate)</li>
+  <li><strong>Explain</strong>: top terms, entities, regions, exemplar articles</li>
+  <li><strong>Publish</strong> anomalies to <code>news.anomalies</code> + Neo4j evidence</li>
+</ol>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="3">
+    <div class="card">
+      <h1>Feature Engineering</h1>
+      <div class="content">
+<ul>
+  <li><strong>Time series:</strong> per (region, category, event_type) counts per Δt (e.g., 1h/6h/1d)</li>
+  <li><strong>Sentiment:</strong> avg polarity & variance per bucket</li>
+  <li><strong>Embeddings:</strong> centroid & dispersion; cosine to historical prototypes</li>
+  <li><strong>Text terms:</strong> TF‑IDF/KeyBERT keywords; trigger phrases (e.g., “tariff hike”)</li>
+  <li><strong>Graph:</strong> new node/edge types; degree & motif changes in Neo4j</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="4">
+    <div class="card">
+      <h1>Burst &amp; Shift Detection (Time Series)</h1>
+      <div class="content">
+<ul>
+  <li><strong>EWMA/CUSUM</strong> for mean shifts; <strong>EARS</strong> (CDC) C1/C2 for surveillance</li>
+  <li><strong>Poisson/NegBin GLM</strong> on counts with seasonality, flagging high residuals</li>
+  <li><strong>Bayesian change‑point</strong> (e.g., BOCPD) for regime switches</li>
+  <li><strong>Kleinberg burst</strong> model for attention spikes</li>
+</ul>
+<pre><code># Example: EWMA z-score on per-bucket counts
+mu_t = alpha * x_t + (1-alpha) * mu_{t-1}
+z_t  = (x_t - mu_t) / sigma_hat
+flag if |z_t| &gt; z_threshold</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="5">
+    <div class="card">
+      <h1>Semantic Novelty &amp; Topic Drift</h1>
+      <div class="content">
+<ul>
+  <li><strong>Vector distance</strong>: compare current centroid to rolling historical centroid</li>
+  <li><strong>kNN rarity</strong>: min cosine to last N days' exemplars; low similarity = novel</li>
+  <li><strong>Keyword emergence</strong>: new high-TF terms; KL‑divergence vs baseline</li>
+</ul>
+<pre><code>novelty = 1 - max_cosine(v_curr, {v_hist})
+flag if novelty &gt; τ_novel</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="6">
+    <div class="card">
+      <h1>Sentiment &amp; Stance Shift</h1>
+      <div class="content">
+<ul>
+  <li>Robust polarity median per bucket; <em>Hodges–Lehmann</em> change estimator</li>
+  <li>Two-sample tests (Mann–Whitney) vs. trailing window</li>
+  <li>Combine with volume to avoid “small N” false alarms</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="7">
+    <div class="card">
+      <h1>Graph Anomaly Patterns (Neo4j)</h1>
+      <div class="content">
+<ul>
+  <li>New <code>(Event)-[:IN_CATEGORY]-&gt;(Category)</code> combinations unseen in training period</li>
+  <li>Degree bursts for sensitive nodes (e.g., a regulator or port)</li>
+  <li>Motif frequency shifts: e.g., (ORG)-(LAW)-(REGION) triangles</li>
+</ul>
+<pre><code>// Neo4j Cypher sketch
+MATCH (e:Event)-[:IN_CATEGORY]-&gt;(c:Category), (e)-[:IN_REGION]-&gt;(r:Region)
+WHERE e.date &gt; $t0
+WITH c,r,count(*) AS cnt
+MATCH (h:History {{category:c.name, region:r.code}})
+WHERE cnt &gt; h.mu + 3*h.sigma
+RETURN c.name, r.code, cnt</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="8">
+    <div class="card">
+      <h1>Multivariate Outlier Detection</h1>
+      <div class="content">
+<ul>
+  <li><strong>Isolation Forest</strong> on feature vectors per bucket</li>
+  <li><strong>DBSCAN/HDBSCAN</strong> to reveal dense vs. sparse clusters</li>
+  <li><strong>Robust PCA</strong> (RPCA) to isolate low‑rank trend vs. sparse anomalies</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="9">
+    <div class="card">
+      <h1>Putting it together — Ensemble</h1>
+      <div class="content">
+<p>Each detector yields a score; we fuse them with calibrated weights:</p>
+<pre><code>score = 0.35*burst + 0.25*novelty + 0.20*sentiment_shift + 0.20*graph_anom
+flag if score &gt;= θ and support ≥ min_articles</code></pre>
+<ul>
+  <li><em>Support:</em> number of curated items implicated</li>
+  <li>Cooldown windows to prevent duplicate alerts</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="10">
+    <div class="card">
+      <h1>Explainability</h1>
+      <div class="content">
+<ul>
+  <li>Attach <strong>evidence</strong>: top phrases, exemplar articles, key entities, trend chart</li>
+  <li>Store <code>reasons</code> dict per anomaly for UI & auditability</li>
+</ul>
+<pre><code>{
+  "reasons": { "burst_z": 3.4, "novelty": 0.81, "top_terms": ["tariff","semiconductor"] },
+  "exemplars": ["news_id_123","news_id_456"]
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="11">
+    <div class="card">
+      <h1>Streaming Implementation Sketch</h1>
+      <div class="content">
+<pre><code class="language-python">def on_curated_news(msg):
+    key = (msg["region"], top_category(msg), msg["event_type"])
+    bucket = floor_time(msg["published_at"], '1h')
+    # update counts & features
+    ts.update(key, bucket)
+    senti.update(key, bucket, msg["sentiment"])
+    emb.update(key, bucket, msg["v_event"])
+    graph.update(msg)  # Neo4j side
+
+    # run detectors
+    burst = ewma_z(ts.series(key))
+    novelty = 1 - max_cos(emb.centroid(bucket), emb.hist_centroids(key))
+    sshift = sentiment_shift(senti.series(key))
+    ganom  = graph_signals(key, bucket)
+
+    score = fuse(burst, novelty, sshift, ganom)
+    if score &gt;= THRESH and support(key,bucket) &gt;= MIN_SUPPORT:
+        emit_anomaly(key, bucket, score, reasons, exemplars)</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="12">
+    <div class="card">
+      <h1>Anomaly Schema (news.anomalies)</h1>
+      <div class="content">
+<pre><code>{
+  "anomaly_id": "anom_eu_electronics_2025-05-11T08",
+  "window": {"start":"2025-05-11T08:00Z","end":"2025-05-11T09:00Z"},
+  "region": "eu",
+  "categories": ["Electronics","Semiconductor"],
+  "event_type": "RegulatoryChange",
+  "signals": {
+    "burst_z": 3.4, "novelty": 0.81, "sentiment_shift": 0.62, "graph": 0.55
+  },
+  "score": 0.76,
+  "support": 19,
+  "exemplars": ["news-101","news-118"],
+  "reasons": {"top_terms":["tariff","import","msrp"], "top_entities":["EU Commission"]}
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="13">
+    <div class="card">
+      <h1>Quality, Tuning, &amp; Ops</h1>
+      <div class="content">
+<ul>
+  <li>Label a small set → tune thresholds per (region, category)</li>
+  <li>Backtest with sliding windows; monitor precision/recall & alert volume</li>
+  <li>Idempotent emissions; DLQ for bad payloads; SLOs on latency</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="14">
+    <div class="card">
+      <h1>Integration</h1>
+      <div class="content">
+<ul>
+  <li><strong>FAISS</strong>: anomaly vector = centroid of implicated items; used later for correlating to internal anomalies</li>
+  <li><strong>Neo4j</strong>: persist anomaly <em>explanations</em> as relationships & evidence nodes</li>
+  <li><strong>UI</strong>: trend sparkline + reasons + exemplars; drill-down to articles</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="15">
+    <div class="card">
+      <h1>Takeaways</h1>
+      <div class="content">
+<ul>
+  <li>Detects external disruptions early with explainable signals</li>
+  <li>Combines time, text, and graph views for robustness</li>
+  <li>Feeds correlation and impact modules with high-quality candidates</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <div class="footer">
+    <div>Use <span class="kbd">→</span> <span class="kbd">←</span> or <span class="kbd">Space</span> to navigate</div>
+    <div style="flex:1"></div>
+    <div id="pager">1 / 16</div>
+  </div>
+  <div class="progress"><div id="pbar"></div></div>
+</div>
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let idx = 0;
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length-1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    document.getElementById('pager').textContent = (idx+1) + ' / ' + slides.length;
+    document.getElementById('pbar').style.width = ((idx+1)/slides.length*100) + '%';
+    location.hash = '#' + (idx+1);
+  }
+  function next() { show(idx+1); }
+  function prev() { show(idx-1); }
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+  window.addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(n)) show(n-1);
+  });
+  const n0 = parseInt(location.hash.slice(1), 10);
+  show(isNaN(n0) ? 0 : n0-1);
+</script>
+</body>
+</html>

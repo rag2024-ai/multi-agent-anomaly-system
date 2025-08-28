@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Correlation Agents — External ↔ Internal Anomalies</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #0f1630;
+    --text: #e8ecf8;
+    --muted: #97a0b8;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, 'Helvetica Neue', Arial; }
+  .deck { position:relative; width:100vw; height:100vh; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:56px 64px; display:none; }
+  .slide.active { display:block; }
+  .card { background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(255,255,255,0.08);
+           box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-radius:18px; height:100%; padding:40px; overflow:auto; }
+  h1 { margin:0 0 8px 0; font-size: 42px; line-height:1.1; letter-spacing:.2px; }
+  p  { color: var(--text); }
+  ul, ol { margin: 8px 0 0 22px; }
+  pre { background:#0b0f1d; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px 16px; overflow:auto; }
+  .footer { position:absolute; left:0; right:0; bottom:0; height:40px; display:flex; align-items:center; gap:12px; padding:0 16px; color:var(--muted); }
+  .progress { height:4px; background: rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
+  .progress > div { height:100%; width:0%; background: linear-gradient(90deg, #6aa9ff, #b68bff); }
+  .kbd { display:inline-block; padding:2px 8px; border:1px solid rgba(255,255,255,0.2); border-radius:6px; font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="deck">
+  
+  <section class="slide" data-index="0">
+    <div class="card">
+      <h1>Correlation Agents — Root‑Cause Linking</h1>
+      <div class="content">
+<p><strong>Goal:</strong> Match <em>external anomalies</em> (from curated news/feeds) with <em>internal anomalies</em> (sales, units, price, etc.) to infer likely root causes and estimate impact.</p>
+<ul>
+  <li>Produce explainable links: <em>who</em>, <em>what</em>, <em>where</em>, <em>when</em>, <em>why</em></li>
+  <li>Feed impact analysis and decision support (playbooks, what‑ifs)</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="1">
+    <div class="card">
+      <h1>Key Inputs &amp; Contracts</h1>
+      <div class="content">
+<ul>
+  <li><strong>External anomalies</strong> (<code>news.anomalies</code>): time window, region, categories, event_type, signals (burst, novelty, sentiment, graph), exemplars</li>
+  <li><strong>Internal anomalies</strong> (<code>internal.anomalies</code>): date, grain (SKU/Region/Category/Channel), metric z/MAD scores, type (Price jump, KPI anomaly)</li>
+  <li><strong>Aux stores</strong>: <strong>FAISS</strong> (vectors) and <strong>Neo4j</strong> (KG)</li>
+</ul>
+<pre><code>// external
+{ "anomaly_id":"anom_eu_elec_2025-05-11T08", "region":"eu",
+  "categories":["Electronics"], "event_type":"RegulatoryChange",
+  "window":{"start":"2025-05-11T08:00Z","end":"2025-05-11T09:00Z"},
+  "signals":{"burst_z":3.4,"novelty":0.81}, "exemplars":["news-101","news-118"] }
+// internal
+{ "anomaly_id":"SKU_5_2025-05-12", "date":"2025-05-12",
+  "grain":{"sku":"SKU_5","region":"EU","category":"Electronics"},
+  "metrics":{"z_units":-1.72,"z_price":2.97,"mad_z_price":5.34}, "type":"Price jump" }</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="2">
+    <div class="card">
+      <h1>High‑Level Flow</h1>
+      <div class="content">
+<ol>
+  <li><strong>Signature</strong> building: vectorize both sides (text/event & metric context)</li>
+  <li><strong>Retrieve</strong> candidates via FAISS (kNN on external events for each internal anomaly)</li>
+  <li><strong>Filter</strong> by time window, region/category consistency, and graph constraints (Neo4j)</li>
+  <li><strong>Score</strong> with an ensemble (time alignment, geo/cat match, text similarity, graph support)</li>
+  <li><strong>Select</strong> top matches per internal anomaly; emit correlation payloads</li>
+</ol>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="3">
+    <div class="card">
+      <h1>1) Signature Construction</h1>
+      <div class="content">
+<ul>
+  <li><strong>Internal signature</strong> <code>v_int</code>: encode anomaly type + grain + direction + magnitudes</li>
+  <li><strong>External signature</strong> <code>v_ext</code>: encode event_type + region + categories + summary terms</li>
+  <li>Use the same embedding family to keep the space aligned (e.g., Sentence‑T transformers)</li>
+</ul>
+<pre><code>internal_text = f"{type} {region} {category} units_z:{z_units:.2f} price_z:{z_price:.2f}"
+v_int = embed(internal_text)          # FAISS query
+for ext in external_anomalies:        # indexed as (news_id, v_ext)
+    v_ext = ext["v_event"]</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="4">
+    <div class="card">
+      <h1>2) Candidate Retrieval (FAISS)</h1>
+      <div class="content">
+<ul>
+  <li>Index all <em>external</em> event vectors; query with <code>v_int</code> → top‑K candidates</li>
+  <li>Keep a generous K (e.g., 50–200) to avoid missing plausible causes</li>
+  <li>Partition/shard FAISS by time to speed up recency‑biased search</li>
+</ul>
+<pre><code>cands = faiss.search(v_int, top_k=100, time_range=t_minus_7d..t_plus_1d)</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="5">
+    <div class="card">
+      <h1>3) Rule &amp; Graph Filters</h1>
+      <div class="content">
+<ul>
+  <li><strong>Time</strong>: external must precede or coincide; allow a small post‑window for reporting lag</li>
+  <li><strong>Geo</strong>: normalize (EU/europe) → <code>eu</code>; require equality or containment</li>
+  <li><strong>Category</strong>: require overlap (Electronics ⊇ Smartphones)</li>
+  <li><strong>Graph</strong> (Neo4j): require path consistency (e.g., Event‑&gt;Category‑&gt;SKU family, Event‑&gt;Region)</li>
+</ul>
+<pre><code>// Cypher sketch (path consistency)
+MATCH (e:Event {{id:$news_id}})-[:IN_CATEGORY]-&gt;(c:Category),
+      (p:Product {{sku:$sku}})-[:IN_CATEGORY]-&gt;(c)
+RETURN count(*) &gt; 0 AS ok</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="6">
+    <div class="card">
+      <h1>4) Scoring Function (Ensemble)</h1>
+      <div class="content">
+<p>Combine interpretable sub‑scores with tunable weights:</p>
+<pre><code>time_score     = time_alignment(ext_time, int_time, max_days=7)          # 0..1
+geo_score      = match(region_ext, region_int)                            # 0/1 or soft
+cat_score      = jaccard(cats_ext, cats_int)                               # 0..1
+text_score     = cosine(v_ext, v_int)                                      # 0..1
+graph_support  = neo4j_support(news_id, sku/category/region)               # 0..1
+magnitude      = f(|z_units|, |z_price|, |burst_z|, |novelty|)             # 0..1
+
+overall = 0.30*time_score + 0.20*geo_score + 0.20*cat_score
+        + 0.20*text_score + 0.10*graph_support
+flag if overall ≥ θ and time_score ≥ τ_time</code></pre>
+<ul>
+  <li>Constrain with minimum <em>time_score</em> to avoid coincidental matches</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="7">
+    <div class="card">
+      <h1>5) Direction &amp; Mechanism Checks</h1>
+      <div class="content">
+<ul>
+  <li>Map <strong>event types</strong> to <em>expected KPI effects</em> (e.g., tariff ↑ → price ↑, units ↓)</li>
+  <li>Verify sign consistency: if internal shows price jump and external is “RegulatoryChange raising costs”, boost score</li>
+  <li>Use a small rules table or Neo4j edges: <code>(EventType)-[:AFFECTS]-&gt;(KPI, sign)</code></li>
+</ul>
+<pre><code>// Example
+EXPECTATIONS = { ("RegulatoryChange","Electronics"): {"price": "+", "units": "-" } }
+if EXPECTATIONS.get((ext.event_type, int.category), {{}}).get("price") == "+" and z_price &gt; 0:
+    overall += 0.05</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="8">
+    <div class="card">
+      <h1>6) Impact Primer (for next stage)</h1>
+      <div class="content">
+<ul>
+  <li>Turn <em>overall</em> and <em>time_score</em> into a prior for impact % (used by Impact Analysis agent)</li>
+  <li>Simple mapping: <code>impact_prior = 100 * (0.6*exp(-(1-overall)) + 0.4*time_score)</code></li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="9">
+    <div class="card">
+      <h1>Explainability Payload</h1>
+      <div class="content">
+<pre><code>{
+  "anomaly_id_int":"SKU_5_2025-05-12",
+  "matched_news":[
+    {"news_id":"news-118","title":"EU tariff change impacts electronics", "date":"2025-05-11",
+     "scores":{"overall":0.78,"time":0.92,"geo":1.0,"cat":1.0,"text":0.65,"graph":0.4},
+     "reasons":{"direction":"price_up","expected_from":"RegulatoryChange"}}
+  ],
+  "impact_prior_pct": 61.2,
+  "evidence": {"exemplars":["news-118"], "faiss_rank": 3, "neo4j_paths":2}
+}</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="10">
+    <div class="card">
+      <h1>Streaming Implementation Sketch</h1>
+      <div class="content">
+<pre><code class="language-python">def correlate(internal_anom):
+    v_int = embed( signature_from_internal(internal_anom) )
+    # 1) retrieve
+    cands = faiss.search(v_int, top_k=100, time_range=t_minus_7d..t_plus_1d)
+    # 2) filter
+    cands = [c for c in cands if time_ok(c, internal_anom) and geo_ok(c, internal_anom) and cat_ok(c, internal_anom)]
+    # 3) score
+    scored = []
+    for c in cands:
+        s = dict(
+            time=time_alignment(c.time, internal_anom.date),
+            geo=geo_score(c.region, internal_anom.region),
+            cat=jaccard(c.categories, internal_anom.category),
+            text=cosine(c.v_event, v_int),
+            graph=neo4j_support(c.id, internal_anom.grain)
+        )
+        overall = 0.30*s["time"] + 0.20*s["geo"] + 0.20*s["cat"] + 0.20*s["text"] + 0.10*s["graph"]
+        overall = adjust_for_direction(overall, c.event_type, internal_anom.metrics)
+        if overall &gt;= THRESH: scored.append((overall, c, s))
+    # 4) select top‑k (e.g., 3)
+    return topk(scored, k=3)</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="11">
+    <div class="card">
+      <h1>Neo4j Patterns for Support</h1>
+      <div class="content">
+<ul>
+  <li>Evidence paths increase confidence:</li>
+</ul>
+<pre><code>// Example: Event related to product family sold in region
+MATCH (e:Event {{id:$news_id}})-[:IN_CATEGORY]-&gt;(c:Category)&lt;-[:IN_CATEGORY]-(p:Product)
+MATCH (p)&lt;-[:OF_PRODUCT]-(s:SKU {{id:$sku}})
+MATCH (e)-[:IN_REGION]-&gt;(r:Region {{code:$region}})
+RETURN count(*) as support</code></pre>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="12">
+    <div class="card">
+      <h1>Tuning &amp; Validation</h1>
+      <div class="content">
+<ul>
+  <li>Use historical “known‑cause” periods for labels</li>
+  <li>Calibrate weights/thresholds per region/category (variance differs)</li>
+  <li>Track precision@k, recall@k; add human‑in‑the‑loop feedback to improve</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="13">
+    <div class="card">
+      <h1>Failure Handling &amp; Ops</h1>
+      <div class="content">
+<ul>
+  <li>Idempotent correlation per (anomaly_id_int, news_id)</li>
+  <li>Cooldown windows; re‑score when new external evidence appears</li>
+  <li>DLQs for malformed payloads; metrics on match rate and evidence completeness</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <section class="slide" data-index="14">
+    <div class="card">
+      <h1>Takeaways</h1>
+      <div class="content">
+<ul>
+  <li>Correlation agents turn raw anomalies into <strong>actionable hypotheses</strong></li>
+  <li>FAISS for fast semantic retrieval; Neo4j for structural consistency & explanations</li>
+  <li>Explainability & direction checks reduce spurious matches</li>
+</ul>
+</div>
+    </div>
+  </section>
+  <div class="footer">
+    <div>Use <span class="kbd">→</span> <span class="kbd">←</span> or <span class="kbd">Space</span> to navigate</div>
+    <div style="flex:1"></div>
+    <div id="pager">1 / 15</div>
+  </div>
+  <div class="progress"><div id="pbar"></div></div>
+</div>
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  let idx = 0;
+  function show(i) {
+    idx = Math.max(0, Math.min(slides.length-1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === idx));
+    document.getElementById('pager').textContent = (idx+1) + ' / ' + slides.length;
+    document.getElementById('pbar').style.width = ((idx+1)/slides.length*100) + '%';
+    location.hash = '#' + (idx+1);
+  }
+  function next() { show(idx+1); }
+  function prev() { show(idx-1); }
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowRight','PageDown',' '].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+  window.addEventListener('hashchange', () => {
+    const n = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(n)) show(n-1);
+  });
+  const n0 = parseInt(location.hash.slice(1), 10);
+  show(isNaN(n0) ? 0 : n0-1);
+</script>
+</body>
+</html>
